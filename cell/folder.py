@@ -33,7 +33,7 @@ class ImageFolder(data.Dataset):
 
     def __getitem__(self, index):
         path, target_path = self.imgs[index]
-        print (path)
+#        print (path)
         img = self.loader(os.path.join(self.root, path))
         target = cv2_grayscale_loader(os.path.join(self.root, target_path)) # TODO: replace
         #target = target.reshape(*target.shape, 1) # crutch

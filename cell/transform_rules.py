@@ -8,10 +8,11 @@ from functools import partial
 def np_nozoom_256():
     # TODO: add zoom
     # TODO: add mean, std
+    # TODO: add random_channel_shift
 
     train_transformations = Compose([
         #res
-        partial(resize, size=(256, 256)),
+        partial(resize, size=(256, 256)), # TODO: not to resize
         random_shift_scale_rotate,
         random_flip,
         random_transpose,
@@ -19,10 +20,12 @@ def np_nozoom_256():
     ])
 
     val_transformations = Compose([
+        partial(resize, size=(256, 256)),
         NPToTensor(),
     ])
 
-    test_transformation = Compose([
+    test_transformation = Compose([     # solo transform
+        partial(resize, size=(256, 256)),
         #SpatialPick(),
         # TODO: average by augmentation
         NPToTensor(),
@@ -34,7 +37,7 @@ def np_nozoom_256():
 def augmentation_factory(name):
     aug_func = globals().get(name, None)
     if aug_func is None:
-        raise AttributeError("Model %s doesn't exist" % (name,))
+        raise AttributeError("Augmentation %s doesn't exist" % (name,))
 
     augm = aug_func()
     return augm

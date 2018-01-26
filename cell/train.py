@@ -1,5 +1,5 @@
 #-*- coding: utf8 -*-
-import sys, random, os, logging, glob, traceback, json
+import sys, random, os, logging, glob, traceback, cv2
 from collections import defaultdict
 from optparse import OptionParser
 import numpy as np, pandas as pd
@@ -10,7 +10,7 @@ import torch.utils.data
 from folder import ImageFolder, ImageTestFolder
 from __init__ import RESULT_DIR
 import model, transform_rules
-from utils import VisdomMonitor, dice_loss
+from utils import VisdomMonitor, dice_loss, rle_encoding, prob_to_rles
 from model import factory as model_factory
 from transform_rules import augmentation_factory
 import routine
@@ -23,7 +23,6 @@ logger.setLevel(logging.DEBUG)
 class Trainer(object):
     def __init__(self, config, train_dir, test_dir, seed=0,
                  shard='', pre_trained=True):
-        self._init_model(config)
         self.__transformations = augmentation_factory(config.transform)
         self.__train_dir = train_dir
         self.__test_dir = test_dir
@@ -47,7 +46,7 @@ class Trainer(object):
         self.__detailed_output_file = os.path.join(res_dir, 'detailed_submission{0}.txt')
         self.__holdout_output_file = os.path.join(res_dir, 'detailed_holdout{0}.txt')
         self.__valid_output_file = os.path.join(res_dir, 'detailed_valid{0}.txt')
-        self._model, self.__layers_to_optimize = None, None
+        self._init_model(config)
         self.monitor = VisdomMonitor(port=80)
         self.__cur_fold = ''
 
@@ -104,6 +103,7 @@ class Trainer(object):
             ddict = train_names if random.random() < train_percent else val_names
             ddict.add(filename)
 
+        logger.info('Splitted dataset: train %d, val %d', len(train_names), len(val_names))
         return train_names, val_names
 
     def _get_data_loader(self, config, names=None):
@@ -113,8 +113,8 @@ class Trainer(object):
         else:
             train_names, val_names = names
 
-        train_folder = ImageFolder(self.__label_file, self.__train_dir, train_names, transform=trs['train'])
-        val_folder = ImageFolder(self.__label_file, self.__train_dir, val_names, transform=trs['val'])
+        train_folder = ImageFolder(self.__train_dir, train_names, transform=trs['train'])
+        val_folder = ImageFolder(self.__train_dir, val_names, transform=trs['val'])
         if not len(train_folder) or not len(val_folder):
             raise ValueError('One of the image folders contains zero data, train: %s, val: %s' % \
                               (len(train_folder), len(val_folder)))
@@ -134,7 +134,7 @@ class Trainer(object):
     def _init_lr_scheduler(self, config, optimizer, best_score):
         lr_scheduler = routine.PlateauScheduler(optimizer, config.max_stops, config.early_stop_n,
                                                     decrease_rate=config.decrease_rate,
-                                                    best_score=best_score, warm_up_epochs=config.warm_up_epochs)
+                                                    best_score=best_score)
         if config.lr_schedule == 'frozen':
             lr_scheduler.patience = 99999
 
@@ -152,7 +152,7 @@ class Trainer(object):
         #self._init_model() ???
         self.__rm_prev_checkpoints()
 
-        optimizer = torch.optim.SGD(model.parameters(), config.lr, momentum=config.momentum, weight_decay=config.weight_decay)
+        optimizer = torch.optim.SGD(self._model.parameters(), config.lr, momentum=config.momentum, weight_decay=config.weight_decay)
         start_epoch, best_score = self._init_checkpoint(optimizer, config)
         lr_scheduler = self._init_lr_scheduler(config, optimizer, best_score)
 
@@ -184,47 +184,68 @@ class Trainer(object):
     def run_ensemble(self, config):
         raise NotImplementedError
 
-    def test_model(self, config, test_folder=None):
+    def test_model(self, config):
         tr = self.__transformations['test']
-        loader = self.__get_loader(config)
-        if test_folder is None:
-            test_folder = ImageTestFolder(self.__test_dir, transform=tr, loader=loader)
+        test_folder = ImageTestFolder(self.__test_dir, transform=tr)
 
-        # dummy
-        # test_folder.imgs = test_folder.imgs[:10]
-
-        results = []
-        # TODO: rewrite
-        crop_num = len(tr.transforms[0])
-        for index in range(crop_num):
-            # iterate over tranformations
-            logger.info('Testing transformation %d/%d', index + 1, crop_num)
-            test_folder.transform.transforms[0].index = index
-            test_loader = torch.utils.data.DataLoader(test_folder, batch_size=config.test_batch_size,
+        test_loader = torch.utils.data.DataLoader(test_folder, batch_size=config.test_batch_size,
                                                       num_workers=config.workers, pin_memory=True)
-            names, crop_results = routine.test_model(test_loader, self._model, activation=None)
-            results.append(crop_results)
 
-        final_results = [sum(map(lambda x: x[i].data.numpy(), results)) / float(crop_num) for i in
-                         range(len(test_folder.imgs))]
+        names, results = routine.test_model(test_loader, self._model, activation=None)
 
+
+
+        # sys.exit(path)
+        # print ('TODO')
+        # # TODO: rewrite
+        # crop_num = len(tr.transforms[0])
+        # for index in range(crop_num):
+        #     # iterate over tranformations
+        #     logger.info('Testing transformation %d/%d', index + 1, crop_num)
+        #     test_folder.transform.transforms[0].index = index
+        #     test_loader = torch.utils.data.DataLoader(test_folder, batch_size=config.test_batch_size,
+        #                                               num_workers=config.workers, pin_memory=True)
+        #     names, crop_results = routine.test_model(test_loader, self._model, activation=None)
+        #     results.append(crop_results)
+        #
+        # final_results = [sum(map(lambda x: x[i].data.numpy(), results)) / float(crop_num) for i in
+        #                  range(len(test_folder.imgs))]
+
+
+        final_results = [r.squeeze().numpy() for r in results]
         return names, final_results
 
-    def __write_submission(self, res, thresholds, output_file=None, detailed_output_file=None):
-        raise NotImplementedError('REWRITE') # TODO:
+    def __write_submission(self, names, results, threshold = 0.5, output_file=None):
+        # TODO: predict thresolhd
+        # TODO: +postprocessing
+        output_file = output_file or self.__output_file.format(self.__cur_fold)
+
+        with open(output_file, 'w') as wf:
+            wf.write('ImageId,EncodedPixels\n')
+            for basename, vector in zip(names, results):
+                filepath = os.path.join(self.__test_dir, basename)
+                name = basename.split('/')[0]
+                target_shape = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE).shape
+                img = cv2.resize(vector, (target_shape[1], target_shape[0]))
+                #img = cv2.threshold(img, threshold, 1, cv2.THRESH_BINARY)[1]
+                #print(name, vector.shape, target_shape, img.shape)
+                #cv2.imwrite('/home/tyantov/t3.png', img * 255)
+                #img = cv2.imread(self.__train_dir + '/00071198d059ba7f5914a526d124d28e6d010c92466da21d4a04cd5413362552/mask/one_mask.png', cv2.IMREAD_GRAYSCALE)/255
+
+                for r_mask in prob_to_rles(img, cut_off=threshold):
+                    str_t = name + ',' + ' '.join(map(str, r_mask)) + '\n'
+                    wf.write(str_t)
 
     def test_and_submit(self, config, val_loader=None):
-        self._init_model()
+        #self._init_model()
         self._load_best_model()
-        thresholds = self.estimate_thresholds(config, val_loader)
         names, final_results = self.test_model(config)
-        self.__write_submission(izip(names, final_results), thresholds)
-        return thresholds
+        self.__write_submission(names, final_results)
 
 
 def main():
     parser = OptionParser()
-    parser.add_option("-b", "--batch_size", action='store', type='int', dest='batch_size', default=128)
+    parser.add_option("-b", "--batch_size", action='store', type='int', dest='batch_size', default=64)
     parser.add_option("--test_batch_size", action='store', type='int', dest='test_batch_size', default=320)
     parser.add_option("-e", "--epoch", action='store', type='int', dest='epoch', default=80)
     parser.add_option("-r", "--workers", action='store', type='int', dest='workers', default=2)
@@ -246,15 +267,15 @@ def main():
     parser.add_option("--lr_schedule", action='store', type='str', dest='lr_schedule', default='adaptive_best',
                       help="""possible: adaptive, adaptive_best, decreasing or frozen.
                        adaptive_best is the same as plateau scheduler""")
-    parser.add_option("--model", action='store', type='str', dest='model', default=None,
+    parser.add_option("--model", action='store', type='str', dest='model', default='unet',
                       help='Which model to use, check model.py for names')
-    parser.add_option("--transform", action='store', type='str', dest='transform', default=None,
+    parser.add_option("--transform", action='store', type='str', dest='transform', default='np_nozoom_256',
                       help='Specify a transformation rule. Check transform_rules.py for names')
     parser.add_option("--warm_up_epochs", action='store', type='int', dest='warm_up_epochs', default=2,
                       help='warm_up_epochs number if model has it')
     parser.add_option("--max_stops", action='store', type='int', dest='max_stops', default=2,
                       help='max_stops for plateau/adaptive lr schedule')
-    parser.add_option("--run_type", action='store', type='str', dest='run_type', default='train',
+    parser.add_option("--run_type", action='store', type='str', dest='run_type', default='eval',
                       help='train|eval|ens')
     parser.add_option("--seed", action='store', type='int', dest='seed', default=0)
     parser.add_option("--shard", action='store', type='str', dest='shard', default='',

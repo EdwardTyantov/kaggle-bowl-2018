@@ -25,13 +25,7 @@ class PlateauScheduler(object):
         self.__early_stop_counter = 0
         self.__best_score = best_score
         self.__descrease_times = 0
-        self.__warm_up = self.__has_warm_up(optimizer)
-
-    def __has_warm_up(self, optimizer):
-        for param_group in self.optimizer.param_groups:
-            if param_group['lr'] != param_group['after_warmup_lr']:
-                logger.info('Optimizer has warm-up stage')
-                return True
+        self.__warm_up = None
 
     def step(self, epoch, score):
         adjusted, to_break = False, False
@@ -91,8 +85,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # measure data loading time
         data_time.update(time.time() - end)
         target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+        input_var = torch.autograd.Variable(input).cuda()
+        target_var = torch.autograd.Variable(target).cuda()
         # compute output
         output = model(input_var)
 
@@ -110,7 +104,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if (i and i % 50 == 0) or i == len(train_loader) - 1:
+        if (i and i % 5 == 0) or i == len(train_loader) - 1:
             logger.info('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -121,7 +115,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
     return losses.avg
 
-def validate(val_loader, model, criterion, validation_func=dice_loss):
+def validate(val_loader, model, criterion, validation_func=dice_loss, activation=None):
     logger.info('Validating model')
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -133,7 +127,7 @@ def validate(val_loader, model, criterion, validation_func=dice_loss):
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input, volatile=True)
+        input_var = torch.autograd.Variable(input, volatile=True).cuda()
         target_var = torch.autograd.Variable(target, volatile=True)
 
         # compute output
