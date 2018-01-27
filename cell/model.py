@@ -141,45 +141,51 @@ class MyNet(nn.Module):
 
     def forward(self, x):
         down1 = self.down1(x) # 256
-        out = self.drop1(self.pool1(down1))
+        #out = self.drop1(self.pool1(down1))
+        out = self.pool1(down1)
 
         down2 = self.down2(out)
-        out = self.drop2(self.pool2(down2))
+        #out = self.drop2(self.pool2(down2))
+        out = self.pool2(down2)
 
         down3 = self.down3(out)
-        out = self.drop3(self.pool3(down3))
+        #out = self.drop3(self.pool3(down3))
+        out = self.pool3(down3)
 
         down4 = self.down4(out)
-        out = self.drop4(self.pool4(down4))
+        #out = self.drop4(self.pool4(down4))
+        out = self.pool4(down4)
 
         down5 = self.down5(out)
-        out = self.drop5(down5)
+        #out = self.drop5(down5)
+        out = down5
 
         # here second branch
 
         after_conv4 = self.after_conv4(down4)
-        #after_conv4 = down4
+
         up6 = F.upsample(out, scale_factor=2, mode='bilinear')
         up6 = torch.cat([up6, after_conv4], 1)
-        out = self.drop6(self.conv6(up6))
+        #out = self.drop6(self.conv6(up6))
+        out = self.conv6(up6)
 
-        #after_conv3 = self.after_conv3(down3)
-        after_conv3 = down3
+        after_conv3 = self.after_conv3(down3)
         up7 = F.upsample(out, scale_factor=2, mode='bilinear')
         up7 = torch.cat([up7, after_conv3], 1)
-        out = self.drop7(self.conv7(up7))
+        #out = self.drop7(self.conv7(up7))
+        out = self.conv7(up7)
 
-        #after_conv2 = self.after_conv2(down2)
-        after_conv2 = down2
+        after_conv2 = self.after_conv2(down2)
         up8 = F.upsample(out, scale_factor=2, mode='bilinear')
         up8 = torch.cat([up8, after_conv2], 1)
-        out = self.drop8(self.conv8(up8))
+        #out = self.drop8(self.conv8(up8))
+        out = self.conv8(up8)
 
-        #after_conv1 = self.after_conv1(down1)
-        after_conv1 = down1
+        after_conv1 = self.after_conv1(down1)
         up9 = F.upsample(out, scale_factor=2, mode='bilinear')
         up9 = torch.cat([up9, after_conv1], 1)
-        out = self.drop8(self.conv9(up9))
+        #out = self.drop8(self.conv9(up9))
+        out = self.conv9(up9)
 
         out = self.classify(out)
         out = F.sigmoid(out)

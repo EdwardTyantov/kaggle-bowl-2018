@@ -242,7 +242,7 @@ def main():
     parser.add_option("--test_batch_size", action='store', type='int', dest='test_batch_size', default=48)
     parser.add_option("-e", "--epoch", action='store', type='int', dest='epoch', default=80)
     parser.add_option("-r", "--workers", action='store', type='int', dest='workers', default=2)
-    parser.add_option("-l", "--learning-rate", action='store', type='float', dest='lr', default=0.05)
+    parser.add_option("-l", "--learning-rate", action='store', type='float', dest='lr', default=0.1)
     parser.add_option("-m", "--momentum", action='store', type='float', dest='momentum', default=0.9)
     parser.add_option("-w", "--weight_decay", action='store', type='float', dest='weight_decay', default=1e-4)
     parser.add_option("-o", "--optimizer", action='store', type='string', dest='optimizer', default='sgd',
