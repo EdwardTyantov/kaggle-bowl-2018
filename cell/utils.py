@@ -6,6 +6,7 @@ from datetime import datetime
 from collections import defaultdict
 import cv2
 from skimage.morphology import label
+from skimage.filters import threshold_otsu
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -91,7 +92,9 @@ def rle_encoding(x):
     return run_lengths
 
 
-def prob_to_rles(x, cut_off = 0.5):
+def prob_to_rles(x, use_adaptive_threshold = False, cut_off = 0.5):
+    if adaptive_threshold:
+        cut_off = threshold_otsu(x)
     lab_img = label(x>cut_off)
     if lab_img.max()<1:
         lab_img[0,0] = 1 # ensure at least one prediction per image
