@@ -7,6 +7,7 @@ __all__ = ['PACKAGE_DIR', 'RESULT_DIR', 'DATA_FOLDER', 'TRAIN_FOLDER', 'TEST_FOL
 
 PACKAGE_DIR = os.path.join(os.path.realpath(os.path.dirname(__file__)), '')
 RESULT_DIR = os.path.abspath(os.path.join(PACKAGE_DIR, '../', 'results'))
+PHOTO_DIR = os.path.abspath(os.path.join(RESULT_DIR, 'photo'))
 DATA_FOLDER = os.path.realpath(os.path.join(PACKAGE_DIR, '../data'))
 TRAIN_FOLDER = os.path.join(DATA_FOLDER, 'stage1_train')
 TEST_FOLDER = os.path.join(DATA_FOLDER, 'stage1_test')
@@ -20,6 +21,8 @@ assert os.path.exists(TEST_FOLDER)
 
 if not os.path.exists(RESULT_DIR):
     os.mkdir(RESULT_DIR)
+if not os.path.exists(PHOTO_DIR):
+    os.mkdir(PHOTO_DIR)
 
 # logging
 logger = logging.getLogger('app')

@@ -58,7 +58,7 @@ class ImageTestFolder(data.Dataset):
         path = self.imgs[index]
         img = self.loader(os.path.join(self.root, path))
         if self.transform is not None:
-            img, _ = self.transform(img, img)
+            img = self.transform(img)
 
         return img, path
 
@@ -71,15 +71,17 @@ def main():
     from __init__ import TRAIN_FOLDER, TEST_FOLDER
     from transform_rules import augmentation_factory
 
-    tr = augmentation_factory('np_nozoom_256')['train']
+    tr = augmentation_factory('np_nozoom_256')['test']
 
     #itf = ImageFolder(LABEL_FILE, TRAIN_FOLDER_TIF, loader=tif_loader)
-    itf = ImageFolder(TRAIN_FOLDER, transform=tr)
+    itf = ImageTestFolder(TEST_FOLDER, transform=tr)
+    itf.transform.transforms[1].index = 5
     print(len(itf))
     for i, (img, target) in enumerate(itf):
-        print (img.shape, target.shape)
-        #cv2.imwrite('/home/tyantov/t1.png', img )
-        #cv2.imwrite('/home/tyantov/t2.png', target)
+        print (img.shape, target)
+        img2 = itf.transform.transforms[1].uncall(img)
+        cv2.imwrite('/home/tyantov/t1.png', img)
+        cv2.imwrite('/home/tyantov/t2.png', img2)
         sys.exit()
 
     #print itf.classes

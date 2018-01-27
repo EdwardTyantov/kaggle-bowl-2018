@@ -8,7 +8,7 @@ import torch, torch.nn as nn, torch.nn.parallel, torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
 from folder import ImageFolder, ImageTestFolder
-from __init__ import RESULT_DIR
+from __init__ import RESULT_DIR, PHOTO_DIR
 import model, transform_rules
 from utils import VisdomMonitor, dice_loss, rle_encoding, prob_to_rles
 from model import factory as model_factory
@@ -188,31 +188,26 @@ class Trainer(object):
         tr = self.__transformations['test']
         test_folder = ImageTestFolder(self.__test_dir, transform=tr)
 
-        test_loader = torch.utils.data.DataLoader(test_folder, batch_size=config.test_batch_size,
+        #test_loader = torch.utils.data.DataLoader(test_folder, batch_size=config.test_batch_size,
+        #                                              num_workers=config.workers, pin_memory=True)
+        #names, results = routine.test_model(test_loader, self._model, activation=None)
+        #final_results = [r.squeeze().numpy() for r in results]
+
+        crop_num = len(tr.transforms[1])
+        results = []
+        for index in range(crop_num):
+            logger.info('Testing transformation %d/%d', index + 1, crop_num)
+            test_folder.transform.transforms[1].index = index
+            test_loader = torch.utils.data.DataLoader(test_folder, batch_size=config.test_batch_size,
                                                       num_workers=config.workers, pin_memory=True)
+            names, crop_results = routine.test_model(test_loader, self._model, activation=None)
+            undo = test_folder.transform.transforms[1].uncall
+            crop_results = [undo(r.numpy().transpose(1, 2, 0)) for r in crop_results]
+            results.append(crop_results)
 
-        names, results = routine.test_model(test_loader, self._model, activation=None)
+        final_results = [sum(map(lambda x: x[i].squeeze(), results)) / float(crop_num) for i in
+                                           range(len(test_folder.imgs))]
 
-
-
-        # sys.exit(path)
-        # print ('TODO')
-        # # TODO: rewrite
-        # crop_num = len(tr.transforms[0])
-        # for index in range(crop_num):
-        #     # iterate over tranformations
-        #     logger.info('Testing transformation %d/%d', index + 1, crop_num)
-        #     test_folder.transform.transforms[0].index = index
-        #     test_loader = torch.utils.data.DataLoader(test_folder, batch_size=config.test_batch_size,
-        #                                               num_workers=config.workers, pin_memory=True)
-        #     names, crop_results = routine.test_model(test_loader, self._model, activation=None)
-        #     results.append(crop_results)
-        #
-        # final_results = [sum(map(lambda x: x[i].data.numpy(), results)) / float(crop_num) for i in
-        #                  range(len(test_folder.imgs))]
-
-
-        final_results = [r.squeeze().numpy() for r in results]
         return names, final_results
 
     def __write_submission(self, names, results, threshold = 0.5, output_file=None):
@@ -229,9 +224,7 @@ class Trainer(object):
                 img = cv2.resize(vector, (target_shape[1], target_shape[0]))
                 #img = cv2.threshold(img, threshold, 1, cv2.THRESH_BINARY)[1]
                 #print(name, vector.shape, target_shape, img.shape)
-                #cv2.imwrite('/home/tyantov/t3.png', img * 255)
-                #img = cv2.imread(self.__train_dir + '/00071198d059ba7f5914a526d124d28e6d010c92466da21d4a04cd5413362552/mask/one_mask.png', cv2.IMREAD_GRAYSCALE)/255
-
+                cv2.imwrite(os.path.join(PHOTO_DIR, name + '.png'), cv2.threshold(img, threshold, 1, cv2.THRESH_BINARY)[1] * 255)
                 for r_mask in prob_to_rles(img, cut_off=threshold):
                     str_t = name + ',' + ' '.join(map(str, r_mask)) + '\n'
                     wf.write(str_t)
@@ -245,11 +238,11 @@ class Trainer(object):
 
 def main():
     parser = OptionParser()
-    parser.add_option("-b", "--batch_size", action='store', type='int', dest='batch_size', default=64)
-    parser.add_option("--test_batch_size", action='store', type='int', dest='test_batch_size', default=320)
+    parser.add_option("-b", "--batch_size", action='store', type='int', dest='batch_size', default=48)
+    parser.add_option("--test_batch_size", action='store', type='int', dest='test_batch_size', default=48)
     parser.add_option("-e", "--epoch", action='store', type='int', dest='epoch', default=80)
     parser.add_option("-r", "--workers", action='store', type='int', dest='workers', default=2)
-    parser.add_option("-l", "--learning-rate", action='store', type='float', dest='lr', default=0.01)
+    parser.add_option("-l", "--learning-rate", action='store', type='float', dest='lr', default=0.05)
     parser.add_option("-m", "--momentum", action='store', type='float', dest='momentum', default=0.9)
     parser.add_option("-w", "--weight_decay", action='store', type='float', dest='weight_decay', default=1e-4)
     parser.add_option("-o", "--optimizer", action='store', type='string', dest='optimizer', default='sgd',
@@ -267,7 +260,7 @@ def main():
     parser.add_option("--lr_schedule", action='store', type='str', dest='lr_schedule', default='adaptive_best',
                       help="""possible: adaptive, adaptive_best, decreasing or frozen.
                        adaptive_best is the same as plateau scheduler""")
-    parser.add_option("--model", action='store', type='str', dest='model', default='unet',
+    parser.add_option("--model", action='store', type='str', dest='model', default='mynet',
                       help='Which model to use, check model.py for names')
     parser.add_option("--transform", action='store', type='str', dest='transform', default='np_nozoom_256',
                       help='Specify a transformation rule. Check transform_rules.py for names')
@@ -275,7 +268,7 @@ def main():
                       help='warm_up_epochs number if model has it')
     parser.add_option("--max_stops", action='store', type='int', dest='max_stops', default=2,
                       help='max_stops for plateau/adaptive lr schedule')
-    parser.add_option("--run_type", action='store', type='str', dest='run_type', default='eval',
+    parser.add_option("--run_type", action='store', type='str', dest='run_type', default='train',
                       help='train|eval|ens')
     parser.add_option("--seed", action='store', type='int', dest='seed', default=0)
     parser.add_option("--shard", action='store', type='str', dest='shard', default='',
